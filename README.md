@@ -109,19 +109,27 @@ python -m venv .venv
 source .venv/bin/activate          # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 
-pytest -q                          # 35 tests, all passing
-python run_demo.py                 # runs 7 scenarios → examples/decision_examples.md
+pytest -q                          # run test suite
+python scripts/run_demo.py         # runs 7 scenarios → examples/decision_examples.md
 ```
 
 **Run the full platform (API + dashboard):**
 
 ```bash
-python start_all.py
+python scripts/start_all.py
 # Dashboard   → http://localhost:3000
 # API + docs  → http://127.0.0.1:8000/docs
 ```
 
-Or run only the core API: `uvicorn decision.api:create_app --factory --app-dir src --reload`
+Or run each service separately:
+
+```bash
+# Run Backend API (Port 8000):
+python scripts/start_backend.py
+
+# Run Frontend UI (Port 3000):
+python scripts/start_frontend.py
+```
 
 To simulate a credit bureau outage: `SIMULATE_CREDIT_BUREAU_FAILURES=2` (the first two calls fail).
 
@@ -130,16 +138,18 @@ To simulate a credit bureau outage: `SIMULATE_CREDIT_BUREAU_FAILURES=2` (the fir
 | Method | Path | Purpose | Status codes |
 |---|---|---|---|
 | `POST` | `/requests` | Submit (optional `Idempotency-Key` header) | `201` new · `200` duplicate · `404` unknown workflow · `409` key conflict · `422` invalid |
+| `GET` | `/requests` | List historical requests (filter by `workflow`) | `200` |
 | `GET` | `/requests/{id}` | Current state | `200` · `404` |
 | `GET` | `/requests/{id}/decision` | Decision, reasons, rule trace, facts | `200` · `404` |
 | `GET` | `/requests/{id}/audit` | State history and every audit event | `200` · `404` |
 | `POST` | `/requests/{id}/retry` | Resume a `RETRY_PENDING` request | `200` · `409` |
 | `POST` | `/requests/{id}/review` | Human approve or reject | `200` · `409` · `422` |
 | `GET` | `/workflows` | Loaded workflows and rules | `200` |
-| `POST` | `/workflows/reload` | Reload YAML, keeping the old config if the new one is broken | `200` · `400` |
+| `GET` | `/workflows/{name}` | Workflow details (rules, stages, input schema) | `200` · `404` |
+| `POST` | `/workflows/reload` | Reload YAML, keeping old config if new is broken | `200` · `400` |
+| `GET` | `/stats` | System-wide metrics and request counts | `200` |
+| `GET` | `/examples` | Pre-built test payloads for workflows | `200` |
 | `GET` | `/health` | Liveness | `200` |
-
-The dashboard backend (`backend/main.py`) adds `/stats`, `/workflows/{name}`, `/examples` and a request listing, with CORS enabled.
 
 <details>
 <summary><b>Try it with curl</b></summary>
@@ -161,12 +171,12 @@ curl -s -X POST localhost:8000/requests/<request_id>/review \
 <summary><b>Use the command line</b></summary>
 
 ```bash
-python run_cli.py submit --workflow application_approval --file examples/inputs/approved.json
-python run_cli.py decision <request_id>
-python run_cli.py review <request_id> --decision approve --reviewer "Ravi" --note "verified"
-python run_cli.py audit <request_id>
-python run_cli.py workflows
-python run_cli.py --fail-bureau 2 submit --workflow application_approval --file examples/inputs/approved.json
+python scripts/run_cli.py submit --workflow application_approval --file examples/inputs/approved.json
+python scripts/run_cli.py decision <request_id>
+python scripts/run_cli.py review <request_id> --decision approve --reviewer "Ravi" --note "verified"
+python scripts/run_cli.py audit <request_id>
+python scripts/run_cli.py workflows
+python scripts/run_cli.py --fail-bureau 2 submit --workflow application_approval --file examples/inputs/approved.json
 ```
 </details>
 
@@ -193,7 +203,7 @@ Plain HTML, CSS and JavaScript, with **no external dependencies**.
 | `manual_review.json` | Bureau returns 600 | 👤 `MANUAL_REVIEW` |
 | `self_employed_no_docs.json` | Conditional rule fires | 👤 `MANUAL_REVIEW` |
 
-`python run_demo.py` also replays duplicate requests, a dependency failure then retry, and a requirement change (minimum score 650 → 750), and writes every decision with its audit trail to [`examples/decision_examples.md`](examples/decision_examples.md).
+`python scripts/run_demo.py` also replays duplicate requests, a dependency failure then retry, and a requirement change (minimum score 650 → 750), and writes every decision with its audit trail to [`examples/decision_examples.md`](examples/decision_examples.md).
 
 ## 🧠 Engineering Decisions
 
@@ -207,27 +217,50 @@ Plain HTML, CSS and JavaScript, with **no external dependencies**.
 | **Bad config** | Unknown rules, stages or operators are rejected at load time; a broken reload keeps the previous config |
 | **Auditability** | `state_history`, `audit_events` (append-only) and `decisions` answer *how*, *what* and *why* |
 
-## 📁 Project Structure
+## 📁 Clean Project Layout
 
-```
-config/                  workflow definitions (YAML): schema, rules, stages
-src/decision/
-  config.py              load + validate YAML, registry with reload
-  validation.py          input schema checks
-  rules.py               rule evaluation and trace
-  state.py               lifecycle and allowed transitions
-  dependencies.py        simulated credit bureau with scripted failures
-  store.py               SQLite, one transaction per change
-  engine.py              idempotency, stages, retries, review
-  api.py · cli.py        REST API and command line
-backend/                 dashboard API layer (CORS, stats, schema discovery)
-frontend/                zero-dependency web dashboard
-tests/                   35 tests
-examples/                sample inputs and generated decision explanations
-Dockerfile · render.yaml · fly.toml · Procfile      deployment
+```text
+ScoreMe-Project/
+├── README.md
+├── requirements.txt, pytest.ini, .gitignore
+├── Dockerfile, Procfile, render.yaml, fly.toml   (kept at root: cloud hosts look for them there)
+├── config/          workflow definitions (YAML): schema, rules, stages
+│   ├── application_approval.yaml
+│   └── vendor_approval.yaml
+├── src/decision/    core decision engine
+│   ├── config.py
+│   ├── validation.py
+│   ├── rules.py
+│   ├── state.py
+│   ├── dependencies.py
+│   ├── store.py
+│   ├── engine.py
+│   └── factory.py
+├── backend/         dedicated FastAPI REST API server
+│   ├── main.py
+│   ├── requirements.txt
+│   └── README.md
+├── frontend/        interactive web UI dashboard (zero external npm dependencies)
+│   ├── index.html
+│   ├── styles.css
+│   ├── app.js
+│   ├── server.js
+│   ├── package.json
+│   └── README.md
+├── tests/           automated unit & integration test suite
+├── examples/        sample input payloads and decision outputs
+├── scripts/         executable convenience utilities
+│   ├── run_demo.py
+│   ├── run_cli.py
+│   ├── start_all.py
+│   ├── start_backend.py
+│   └── start_frontend.py
+└── docs/            project documentation
+    ├── ARCHITECTURE.md
+    └── DEPLOYMENT.md
 ```
 
-Deployment options (Docker, Render, Fly.io, instant public URL) are in [DEPLOYMENT.md](DEPLOYMENT.md). Design notes and trade-offs are in [ARCHITECTURE.md](ARCHITECTURE.md).
+Deployment options (Docker, Render, Fly.io, instant public URL) are in [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md). Design notes and trade-offs are in [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## ⚠️ Known Limits
 

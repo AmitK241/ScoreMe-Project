@@ -1,6 +1,6 @@
 """Runs seven scripted scenarios end to end and writes examples/decision_examples.md.
 
-    python run_demo.py
+    python scripts/run_demo.py
 
 It uses its own database under data/demo, so it never touches your real data.
 """
@@ -10,7 +10,7 @@ import shutil
 import sys
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT / "src"))
 
 from decision.errors import NotFound  # noqa: E402

@@ -5,7 +5,7 @@ import sys
 import time
 from pathlib import Path
 
-ROOT = Path(__file__).resolve().parent
+ROOT = Path(__file__).resolve().parent.parent
 
 def main():
     print("==================================================")
@@ -13,11 +13,11 @@ def main():
     print("==================================================")
 
     # Launch Backend
-    backend_proc = subprocess.Popen([sys.executable, str(ROOT / "start_backend.py")])
+    backend_proc = subprocess.Popen([sys.executable, str(ROOT / "scripts" / "start_backend.py")])
     time.sleep(1)
 
     # Launch Frontend
-    frontend_proc = subprocess.Popen([sys.executable, str(ROOT / "start_frontend.py")])
+    frontend_proc = subprocess.Popen([sys.executable, str(ROOT / "scripts" / "start_frontend.py")])
 
     print("\n[OK] Both services are running!")
     print("-> Frontend Dashboard: http://localhost:3000")

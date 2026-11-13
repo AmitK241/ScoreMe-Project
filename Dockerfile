@@ -18,6 +18,8 @@ COPY config ./config
 COPY backend ./backend
 COPY frontend ./frontend
 COPY examples ./examples
+COPY scripts ./scripts
+COPY docs ./docs
 
 # Set Python search path
 ENV PYTHONPATH="/app/src:/app/backend"

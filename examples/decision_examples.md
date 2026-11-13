@@ -22,7 +22,7 @@ A complete, valid salaried application. Mandatory checks pass, the credit bureau
 **Output**
 ```json
 {
-  "request_id": "req_2a48cab79fe1",
+  "request_id": "req_ec8a23239c55",
   "status": "APPROVED",
   "retry_count": 0,
   "decision": "APPROVE",
@@ -67,7 +67,7 @@ Missing required fields, a wrong type, a value outside the allowed list, and an 
 **Output**
 ```json
 {
-  "request_id": "req_1a953e3be24b",
+  "request_id": "req_f3e24282df98",
   "status": "INVALID",
   "retry_count": 0,
   "errors": [
@@ -105,7 +105,7 @@ The minimum-age rule fails with reject. The request stops at the first stage, so
 **Output**
 ```json
 {
-  "request_id": "req_1b8140d03919",
+  "request_id": "req_72a859a64f1a",
   "status": "REJECTED",
   "retry_count": 0,
   "decision": "REJECT",
@@ -147,7 +147,7 @@ The bureau returns 600, below the 650 minimum. That rule says manual_review, so 
 **Output**
 ```json
 {
-  "request_id": "req_3d93387ee16c",
+  "request_id": "req_222a93377c34",
   "status": "APPROVED",
   "retry_count": 0,
   "decision": "APPROVE",
@@ -197,7 +197,7 @@ The same payload is sent again with no key, so it is matched by payload hash. Th
 **Output**
 ```json
 {
-  "request_id": "req_2a48cab79fe1",
+  "request_id": "req_ec8a23239c55",
   "status": "APPROVED",
   "retry_count": 0,
   "decision": "APPROVE",
@@ -245,7 +245,7 @@ The bureau times out twice. The engine waits, retries, and gives up for this run
 **Output**
 ```json
 {
-  "request_id": "req_57be8ac7cb0c",
+  "request_id": "req_8b928a7f2a75",
   "status": "APPROVED",
   "retry_count": 1,
   "decision": "APPROVE",
@@ -297,7 +297,7 @@ The same applicant data (credit score 720) is evaluated with a stricter YAML fil
 **Output**
 ```json
 {
-  "request_id": "req_3bd0bda0ca1e",
+  "request_id": "req_64dc0dea36c1",
   "status": "MANUAL_REVIEW",
   "decision": "MANUAL_REVIEW",
   "reasons": [
