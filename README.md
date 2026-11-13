@@ -1,161 +1,254 @@
-# Configurable Workflow Decision Platform
+<div align="center">
 
-A small, runnable decision engine. It takes a request, validates it against a schema, checks business rules,
-calls an external service (simulated), makes a decision (approve / reject / manual review / retry),
-and records everything in an audit trail.
+# ⚖️ Configurable Workflow Decision Platform
 
-Two workflows ship with it: **application approval** and **vendor approval**. The second one was added
-by writing a YAML file, with no Python changes. That is the configurability requirement in practice.
+**A YAML-driven decision engine that approves, rejects, escalates or retries requests, and can explain every single decision.**
 
-Architecture, trade-offs and scaling notes are in [ARCHITECTURE.md](ARCHITECTURE.md).
+![Python](https://img.shields.io/badge/Python-3.10%2B-3776AB?logo=python&logoColor=white)
+![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white)
+![SQLite](https://img.shields.io/badge/SQLite-003B57?logo=sqlite&logoColor=white)
+![JavaScript](https://img.shields.io/badge/Vanilla_JS-F7DF1E?logo=javascript&logoColor=black)
+![Docker](https://img.shields.io/badge/Docker-2496ED?logo=docker&logoColor=white)
+![Tests](https://img.shields.io/badge/tests-35%20passing-brightgreen)
+
+[Quick Start](#-quick-start) · [Architecture](#-architecture) · [Features](#-key-features) · [API](#-rest-api) · [Dashboard](#-web-dashboard) · [Design Decisions](#-engineering-decisions) · [Limits](#-known-limits)
+
+</div>
 
 ---
 
-## 1. Quick start (about 2 minutes)
+## 🎯 The Problem
 
-You need Python 3.10 or newer.
+Loan approval, claim handling and vendor onboarding all share one skeleton: **validate → check rules → call an outside system → decide → keep a record of why.** Only the rules and thresholds change, and they change constantly.
+
+This project separates the two. The **engine is written once**; each **workflow is a YAML file** holding its schema, rules and stages. Adding a whole new workflow, vendor approval, took **zero Python changes**.
+
+## ✨ Key Features
+
+| | Feature | What it means |
+|---|---|---|
+| 🧩 | **Zero-code configurability** | Change a threshold or add a workflow by editing YAML; hot-reload without restart |
+| 🔍 | **Explainable decisions** | Every decision stores the rule trace: rule, actual vs expected value, passed / failed / skipped |
+| 🔁 | **Idempotency** | Duplicate submits return the original result; same key with a different payload returns `409` |
+| 🛡️ | **Failure-safe by design** | Retries with backoff, atomic transactions, and a saved dependency result is never called twice |
+| 👤 | **Human-in-the-loop** | Borderline cases go to `MANUAL_REVIEW`; a reviewer approves or rejects with a note |
+| 📜 | **Full audit trail** | Append-only history of every state change, rule evaluation and dependency attempt |
+| 🧭 | **Change-tolerant** | Each request stores the config hash it ran under, so old decisions stay explainable |
+| 🖥️ | **Web dashboard** | Dynamic forms, live rule trace, audit timeline, review and retry buttons |
+
+## 🏗️ Architecture
+
+```mermaid
+flowchart TD
+    UI[Web Dashboard<br/>HTML · CSS · JS] --> API
+    CLI[CLI] --> ENG
+    API[FastAPI REST layer] --> ENG[Engine<br/>orchestration]
+    ENG --> CFG[Config Registry<br/>YAML → validated workflows]
+    ENG --> RUL[rules.py<br/>pure functions]
+    ENG --> VAL[validation.py<br/>pure functions]
+    ENG --> STA[state.py<br/>allowed transitions]
+    ENG --> DEP[dependencies.py<br/>simulated credit bureau]
+    ENG --> STO[(store.py · SQLite<br/>one transaction per change)]
+```
+
+**Design rule:** rules and validation are pure functions with no I/O, the store owns all SQL, and the engine has no SQL and no HTTP. Rules can be tested without a database, and SQLite can be swapped for Postgres inside one file.
+
+### Request lifecycle
+
+```mermaid
+stateDiagram-v2
+    [*] --> RECEIVED
+    [*] --> INVALID: bad input
+    RECEIVED --> PROCESSING
+    PROCESSING --> APPROVED
+    PROCESSING --> REJECTED
+    PROCESSING --> MANUAL_REVIEW
+    PROCESSING --> RETRY_PENDING: dependency failed
+    RETRY_PENDING --> PROCESSING: retry
+    MANUAL_REVIEW --> APPROVED: reviewer
+    MANUAL_REVIEW --> REJECTED: reviewer
+```
+
+Every transition is checked against an allowed-transition table, so a bug cannot silently create an impossible state.
+
+## 📋 A Workflow Is Just YAML
+
+```yaml
+rules:
+  minimum_age:
+    type: threshold
+    field: age
+    op: gte
+    value: 18
+    on_fail: reject            # reject always wins over manual_review
+
+  self_employed_documents_verified:
+    type: threshold
+    field: documents_uploaded
+    op: eq
+    value: true
+    on_fail: manual_review
+    when: {field: employment, op: eq, value: self_employed}   # conditional rule
+
+stages:
+  - {name: mandatory_checks, type: rules,    rules: [pan_present, minimum_age, minimum_income], next: credit_check}
+  - {name: credit_check,     type: external, dependency: credit_bureau, max_attempts: 2, backoff_seconds: 0.2, on_error: retry, next: risk_rules}
+  - {name: risk_rules,       type: rules,    rules: [credit_score_minimum, loan_to_income_ratio, self_employed_documents_verified], next: APPROVE}
+```
+
+**Operators:** `exists` `eq` `neq` `gte` `gt` `lte` `lt` `in` `not_in` · **Rule types:** `mandatory`, `threshold` · **Outcomes:** `reject`, `manual_review`
+
+Two workflows ship in the box: **`application_approval`** (loan or card, with a credit bureau stage) and **`vendor_approval`** (sanctions and financial checks).
+
+## 🚀 Quick Start
+
+Requires Python 3.10+.
 
 ```bash
-# from the project folder
 python -m venv .venv
 source .venv/bin/activate          # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 
-pytest -q                          # 35 tests, should all pass
-python run_demo.py                 # runs 7 scenarios, writes examples/decision_examples.md
+pytest -q                          # 35 tests, all passing
+python run_demo.py                 # runs 7 scenarios → examples/decision_examples.md
 ```
 
-Open `examples/decision_examples.md` to see each decision explained: input, rules that fired, output, audit trail.
-
-## 2. Run the REST API
+**Run the full platform (API + dashboard):**
 
 ```bash
-uvicorn decision.api:create_app --factory --app-dir src --reload
+python start_all.py
+# Dashboard   → http://localhost:3000
+# API + docs  → http://127.0.0.1:8000/docs
 ```
 
-Then open **http://127.0.0.1:8000/docs** for interactive Swagger UI. You can submit requests from the browser.
+Or run only the core API: `uvicorn decision.api:create_app --factory --app-dir src --reload`
 
-Or with curl:
+To simulate a credit bureau outage: `SIMULATE_CREDIT_BUREAU_FAILURES=2` (the first two calls fail).
+
+## 🔌 REST API
+
+| Method | Path | Purpose | Status codes |
+|---|---|---|---|
+| `POST` | `/requests` | Submit (optional `Idempotency-Key` header) | `201` new · `200` duplicate · `404` unknown workflow · `409` key conflict · `422` invalid |
+| `GET` | `/requests/{id}` | Current state | `200` · `404` |
+| `GET` | `/requests/{id}/decision` | Decision, reasons, rule trace, facts | `200` · `404` |
+| `GET` | `/requests/{id}/audit` | State history and every audit event | `200` · `404` |
+| `POST` | `/requests/{id}/retry` | Resume a `RETRY_PENDING` request | `200` · `409` |
+| `POST` | `/requests/{id}/review` | Human approve or reject | `200` · `409` · `422` |
+| `GET` | `/workflows` | Loaded workflows and rules | `200` |
+| `POST` | `/workflows/reload` | Reload YAML, keeping the old config if the new one is broken | `200` · `400` |
+| `GET` | `/health` | Liveness | `200` |
+
+The dashboard backend (`backend/main.py`) adds `/stats`, `/workflows/{name}`, `/examples` and a request listing, with CORS enabled.
+
+<details>
+<summary><b>Try it with curl</b></summary>
 
 ```bash
-# Submit an application (returns 201)
 curl -s -X POST localhost:8000/requests \
   -H 'Content-Type: application/json' -H 'Idempotency-Key: demo-1' \
   -d '{"workflow":"application_approval","data":{"applicant_id":"APP-1001","full_name":"Asha Rao","age":30,"income":60000,"pan":"ABCDE1234F","loan_amount":20000,"employment":"salaried"}}'
 
-# Send the same request again with the same key (returns 200, duplicate=true, no second bureau call)
-curl -s -X POST localhost:8000/requests -H 'Content-Type: application/json' -H 'Idempotency-Key: demo-1' \
-  -d '{"workflow":"application_approval","data":{"applicant_id":"APP-1001","full_name":"Asha Rao","age":30,"income":60000,"pan":"ABCDE1234F","loan_amount":20000,"employment":"salaried"}}'
-
-curl -s localhost:8000/requests/<request_id>/decision   # the decision with its rule trace
-curl -s localhost:8000/requests/<request_id>/audit      # full audit trail
-curl -s -X POST localhost:8000/requests/<request_id>/retry           # resume a RETRY_PENDING request
+# Same key again → 200, duplicate=true, no second bureau call
+curl -s localhost:8000/requests/<request_id>/decision
+curl -s localhost:8000/requests/<request_id>/audit
 curl -s -X POST localhost:8000/requests/<request_id>/review \
   -H 'Content-Type: application/json' -d '{"decision":"approve","reviewer":"Ravi","note":"verified"}'
-curl -s -X POST localhost:8000/workflows/reload          # reload YAML after editing config
 ```
+</details>
 
-To simulate a bureau outage, start the server with `SIMULATE_CREDIT_BUREAU_FAILURES=2`. The first two bureau calls fail.
-
-### API endpoints
-
-| Method | Path | Purpose | Success | Errors |
-|---|---|---|---|---|
-| GET | `/health` | liveness | 200 | |
-| GET | `/workflows` | list loaded workflows and their rules | 200 | |
-| POST | `/workflows/reload` | reload YAML files without restarting | 200 | 400 if a file is broken (old config stays active) |
-| POST | `/requests` | submit (optional `Idempotency-Key` header) | 201 new, 200 duplicate | 404 unknown workflow, 409 key reused with different data, 422 invalid input |
-| GET | `/requests/{id}` | current state | 200 | 404 |
-| GET | `/requests/{id}/decision` | decision, reasons, rule trace, facts | 200 | 404 (no decision yet) |
-| GET | `/requests/{id}/audit` | state history and every audit event | 200 | 404 |
-| POST | `/requests/{id}/retry` | resume a RETRY_PENDING request | 200 | 409 wrong state |
-| POST | `/requests/{id}/review` | human approve / reject for MANUAL_REVIEW | 200 | 409 wrong state, 422 bad decision |
-
-## 3. Use the command line
+<details>
+<summary><b>Use the command line</b></summary>
 
 ```bash
 python run_cli.py submit --workflow application_approval --file examples/inputs/approved.json
-python run_cli.py submit --workflow application_approval --file examples/inputs/manual_review.json
 python run_cli.py decision <request_id>
 python run_cli.py review <request_id> --decision approve --reviewer "Ravi" --note "verified"
 python run_cli.py audit <request_id>
 python run_cli.py workflows
 python run_cli.py --fail-bureau 2 submit --workflow application_approval --file examples/inputs/approved.json
 ```
+</details>
 
-By default the CLI uses `data/decisions.db`. Use `--db some.db` to keep runs separate.
+## 🖥️ Web Dashboard
 
-## 4. Example inputs
+Plain HTML, CSS and JavaScript, with **no external dependencies**.
 
-| File | What it shows | Expected result |
+- **Dynamic forms** generated from each workflow's `input_schema`, plus one-click sample scenarios
+- **Decision inspector** showing the outcome, reasons and computed facts
+- **Rule trace visualizer** with the condition, actual vs expected value and status of every rule
+- **Audit timeline** of all lifecycle events
+- **Manual review and retry** actions directly in the UI
+- **KPI cards, request history** and a live view of the workflow stage pipeline
+
+## 🧪 Testing and Demo Scenarios
+
+**35 automated tests** cover engine behaviour, rules and config, and the HTTP API, including the hard cases: rollback after a partial save failure, no repeat bureau call after a crash, concurrent duplicate keys, and a threshold change altering a decision with no code change.
+
+| Input | Demonstrates | Result |
 |---|---|---|
-| `examples/inputs/approved.json` | everything valid, score 720 | APPROVED |
-| `examples/inputs/invalid.json` | missing fields, wrong type, bad enum, unknown field | INVALID (422 over HTTP) |
-| `examples/inputs/rejected_underage.json` | age 17 | REJECTED, bureau never called |
-| `examples/inputs/manual_review.json` | applicant `APP-2002`, bureau returns 600 | MANUAL_REVIEW |
-| `examples/inputs/self_employed_no_docs.json` | conditional rule fires, documents missing | MANUAL_REVIEW |
+| `approved.json` | Valid input, credit score 720 | ✅ `APPROVED` |
+| `invalid.json` | Missing field, wrong type, bad enum, unknown field | ⛔ `INVALID` (422) |
+| `rejected_underage.json` | Age 17; bureau never called | ❌ `REJECTED` |
+| `manual_review.json` | Bureau returns 600 | 👤 `MANUAL_REVIEW` |
+| `self_employed_no_docs.json` | Conditional rule fires | 👤 `MANUAL_REVIEW` |
 
-## 5. How to change the behaviour (no code)
+`python run_demo.py` also replays duplicate requests, a dependency failure then retry, and a requirement change (minimum score 650 → 750), and writes every decision with its audit trail to [`examples/decision_examples.md`](examples/decision_examples.md).
 
-Everything decision-related lives in `config/*.yaml`.
+## 🧠 Engineering Decisions
 
-**Change a threshold.** In `config/application_approval.yaml`, change `value: 650` under `credit_score_minimum` to `750`. Then `POST /workflows/reload`, or restart. New requests use the new rule. Old decisions keep the config hash they were made under, so they can still be explained.
-
-**Add a rule.** Add an entry under `rules:` with `type`, `field`, `op`, `value`, `on_fail`, and an optional `when:` condition. Then reference it by name in a stage's `rules:` list.
-
-**Add a stage.** Add an entry under `stages:`. A stage is either `type: rules` (evaluate rules) or `type: external` (call a dependency with retries). Set `next:` to the next stage name, or `APPROVE` to finish.
-
-**Add a workflow.** Copy a YAML file, change the `workflow:` name and the schema and rules, and drop it in `config/`. `vendor_approval.yaml` was built this way.
-
-Supported rule operators: `exists`, `eq`, `neq`, `gte`, `gt`, `lte`, `lt`, `in`, `not_in`. Rule types: `mandatory` (must exist) and `threshold` (compare a field). `on_fail` is `reject` or `manual_review`. A rule with `when:` is skipped unless its condition holds.
-
-Invalid YAML fails at startup with a clear message. A broken reload leaves the previous config active.
-
-## 6. Project layout
-
-```
-config/                      workflow definitions (YAML): schema, rules, stages
-  application_approval.yaml
-  vendor_approval.yaml
-src/decision/
-  config.py                  load and validate YAML, registry with reload
-  validation.py              input schema checks
-  rules.py                   rule evaluation and the trace
-  state.py                   request lifecycle and allowed transitions
-  dependencies.py            simulated credit bureau with scripted failures
-  store.py                   SQLite; each change is one transaction
-  engine.py                  orchestration: idempotency, stages, retries, review
-  factory.py                 wires everything together
-  api.py                     REST API (FastAPI)
-  cli.py                     command-line interface
-tests/                       35 tests (engine, rules/config, API)
-examples/inputs/             sample requests
-examples/decision_examples.md  generated explanations (run run_demo.py to refresh)
-run_demo.py                  scripted scenarios
-run_cli.py                   CLI entry point
-ARCHITECTURE.md              design document
-```
-
-## 7. Requirements checklist
-
-| Requirement | Where it is met |
+| Concern | Approach |
 |---|---|
-| Input intake and schema validation | `validation.py`, schema in YAML; errors returned as 422 |
-| Mandatory, threshold, conditional, multi-step rules | `rules.py` (`mandatory`, `threshold`, `when:`), stages in `engine.py` |
-| Success, reject, retry, manual review | `state.py` outcomes; `engine._run` |
-| Lifecycle tracking and full change history | `state_history` table, `GET /requests/{id}/audit` |
-| Explainable decisions with rule trace | `decisions` table: reasons, per-rule trace, facts, config hash |
-| Dependency failure, retries, backoff | `engine._call_dependency`; `max_attempts`, `backoff_seconds` in YAML |
-| Partial save failures | one transaction per change in `store.commit_transition`; test `test_partial_save_*` |
-| Duplicate requests and idempotency | `Idempotency-Key` header or payload hash; `test_*duplicate*`, `test_same_key_*` |
-| Configurability without code rewrites | YAML files; `vendor_approval.yaml`; test `test_rule_change_*` |
-| Requirement changes tolerated | config hash per request, `config_changed` audit event, reload endpoint |
-| Simulated external dependency | `dependencies.py`, failure injection via env var or CLI flag |
-| Scaling considerations | see ARCHITECTURE.md section 9 |
+| **Duplicate requests** | `UNIQUE` idempotency key; a concurrent loser catches `IntegrityError` and returns the winner |
+| **Partial save failure** | State change, history, audit rows and decision commit in **one transaction** (`BEGIN IMMEDIATE` … `ROLLBACK` on error) |
+| **No repeated external calls** | A successful dependency response is persisted immediately and reused on retry |
+| **Dependency outage** | Retry with linear backoff, then `RETRY_PENDING` (or `MANUAL_REVIEW` if configured) |
+| **Crash mid-run** | The request stays at its last committed stage and can be resumed via `/retry` |
+| **Bad config** | Unknown rules, stages or operators are rejected at load time; a broken reload keeps the previous config |
+| **Auditability** | `state_history`, `audit_events` (append-only) and `decisions` answer *how*, *what* and *why* |
 
-## 8. Known limits (stated honestly)
+## 📁 Project Structure
 
-- SQLite and a single process. Two processes running the same request at once are not protected. Production would use Postgres with row locks, or a queue.
-- Manual review and retry happen on request. There is no background worker. A stalled request can be resumed with `/retry`.
-- The credit bureau is simulated. Its responses are fixed for a few applicant IDs and 720 for everyone else.
-- Authentication and authorization are out of scope.
+```
+config/                  workflow definitions (YAML): schema, rules, stages
+src/decision/
+  config.py              load + validate YAML, registry with reload
+  validation.py          input schema checks
+  rules.py               rule evaluation and trace
+  state.py               lifecycle and allowed transitions
+  dependencies.py        simulated credit bureau with scripted failures
+  store.py               SQLite, one transaction per change
+  engine.py              idempotency, stages, retries, review
+  api.py · cli.py        REST API and command line
+backend/                 dashboard API layer (CORS, stats, schema discovery)
+frontend/                zero-dependency web dashboard
+tests/                   35 tests
+examples/                sample inputs and generated decision explanations
+Dockerfile · render.yaml · fly.toml · Procfile      deployment
+```
+
+Deployment options (Docker, Render, Fly.io, instant public URL) are in [DEPLOYMENT.md](DEPLOYMENT.md). Design notes and trade-offs are in [ARCHITECTURE.md](ARCHITECTURE.md).
+
+## ⚠️ Known Limits
+
+Stated honestly, with the production path for each:
+
+- **SQLite, single process.** Concurrent processes on one request are not protected. Production: Postgres with row locks, or a queue.
+- **No background worker.** Retry and review happen on request. Production: queue and workers for automatic retries.
+- **Simulated credit bureau.** Fixed responses for a few applicant IDs, 720 for everyone else. Real services plug in through the `check()` interface.
+- **No authentication.** Out of scope; reviewer roles would be added next.
+
+## 🔭 Roadmap
+
+- [ ] Postgres store and background workers
+- [ ] Role-based access for reviewers
+- [ ] Richer rule expressions combining multiple fields
+- [ ] Real third-party integrations
+
+---
+
+<div align="center">
+
+**Built by [Amit Kumar](https://github.com/AmitK241)** · Final-year B.Tech CSE, MNNIT Allahabad
+
+</div>
