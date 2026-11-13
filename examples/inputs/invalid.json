@@ -1,0 +1,8 @@
+{
+  "applicant_id": "APP-3003",
+  "age": "thirty",
+  "income": 50000,
+  "loan_amount": 10000,
+  "employment": "retired",
+  "extra_field": true
+}

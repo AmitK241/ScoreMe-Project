@@ -1,0 +1,86 @@
+# Application approval workflow.
+# Everything that decides the outcome lives here: input schema, rules, and the order of stages.
+# Change a number or add a rule here and restart (or call POST /workflows/reload). No Python edits.
+
+workflow: application_approval
+version: 1
+description: Approves or rejects loan/card applications.
+
+input_schema:
+  applicant_id:       {type: string,  required: true}
+  full_name:          {type: string,  required: true}
+  age:                {type: integer, required: true}
+  income:             {type: number,  required: true}
+  pan:                {type: string,  required: true}
+  loan_amount:        {type: number,  required: true}
+  employment:         {type: string,  required: true, allowed: [salaried, self_employed, unemployed]}
+  documents_uploaded: {type: boolean, required: false}
+
+rules:
+  pan_present:
+    type: mandatory
+    field: pan
+    op: exists
+    on_fail: reject
+    description: PAN number is required
+
+  minimum_age:
+    type: threshold
+    field: age
+    op: gte
+    value: 18
+    on_fail: reject
+    description: Applicant must be at least 18
+
+  minimum_income:
+    type: threshold
+    field: income
+    op: gte
+    value: 20000
+    on_fail: reject
+    description: Income must be at least 20000
+
+  credit_score_minimum:
+    type: threshold
+    field: credit_score
+    op: gte
+    value: 650
+    on_fail: manual_review
+    description: Credit score must be at least 650
+
+  loan_to_income_ratio:
+    type: threshold
+    field: loan_ratio
+    op: lte
+    value: 0.5
+    on_fail: manual_review
+    description: Loan must be at most half of annual income
+
+  self_employed_documents_verified:
+    # Conditional rule: only applies when employment is self_employed.
+    type: threshold
+    field: documents_uploaded
+    op: eq
+    value: true
+    on_fail: manual_review
+    when: {field: employment, op: eq, value: self_employed}
+    description: Self-employed applicants must have documents uploaded
+
+stages:
+  - name: mandatory_checks
+    type: rules
+    rules: [pan_present, minimum_age, minimum_income]
+    next: credit_check
+
+  - name: credit_check
+    type: external            # calls the simulated credit bureau
+    dependency: credit_bureau
+    max_attempts: 2           # how many times to call before giving up for this run
+    backoff_seconds: 0.2      # wait backoff * attempt between attempts
+    on_error: retry           # after max_attempts: RETRY_PENDING (use "manual_review" to escalate instead)
+    next: risk_rules
+
+  - name: risk_rules
+    type: rules
+    rules: [credit_score_minimum, loan_to_income_ratio, self_employed_documents_verified]
+    next: APPROVE             # APPROVE is the terminal target when all stages pass

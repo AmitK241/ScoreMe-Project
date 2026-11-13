@@ -1,0 +1,48 @@
+# Vendor approval workflow. Same engine, different config: this is the configurability proof.
+# No code was written for this workflow.
+
+workflow: vendor_approval
+version: 1
+description: Approves new vendors after compliance and basic financial checks.
+
+input_schema:
+  vendor_id:       {type: string, required: true}
+  company_name:    {type: string, required: true}
+  gst_number:      {type: string, required: false}
+  annual_turnover: {type: number, required: true}
+  country:         {type: string, required: true}
+
+rules:
+  country_not_blocked:
+    type: threshold
+    field: country
+    op: not_in
+    value: [KP, IR, SY]
+    on_fail: reject
+    description: Vendor country is under sanctions
+
+  gst_registered:
+    type: mandatory
+    field: gst_number
+    op: exists
+    on_fail: manual_review
+    description: GST number must be provided
+
+  turnover_minimum:
+    type: threshold
+    field: annual_turnover
+    op: gte
+    value: 1000000
+    on_fail: manual_review
+    description: Annual turnover must be at least 1000000
+
+stages:
+  - name: compliance
+    type: rules
+    rules: [country_not_blocked]
+    next: financial_checks
+
+  - name: financial_checks
+    type: rules
+    rules: [gst_registered, turnover_minimum]
+    next: APPROVE

@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Decision OS • Configurable Workflow Decision Platform</title>
+  <link rel="stylesheet" href="styles.css">
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⚡</text></svg>">
+</head>
+<body>
+  <!-- Top Navigation & Brand -->
+  <header class="app-header">
+    <div class="brand">
+      <div class="brand-icon">⚡</div>
+      <div>
+        <div class="brand-title">Decision OS</div>
+        <div class="brand-subtitle">Configurable Workflow Decision Platform</div>
+      </div>
+    </div>
+
+    <div class="header-actions">
+      <!-- Backend URL selector -->
+      <div style="display:flex;align-items:center;gap:6px;">
+        <span style="font-size:11px;color:var(--text-dim);">API:</span>
+        <input type="text" id="backend-url-input" class="form-control" style="width:180px;padding:4px 8px;font-size:11px;" value="http://127.0.0.1:8000" />
+      </div>
+
+      <!-- Health Pill -->
+      <div class="connection-pill">
+        <div id="connection-dot" class="dot disconnected"></div>
+        <span id="connection-text" style="font-weight:600;">Checking...</span>
+      </div>
+
+      <!-- Reload Workflows -->
+      <button id="btn-reload-workflows" class="btn-secondary" title="Hot-reload workflow YAML files from disk without restarting">
+        <span>🔄 Reload YAML</span>
+      </button>
+    </div>
+  </header>
+
+  <!-- Global Metrics Bar -->
+  <section class="stats-container">
+    <div class="stat-card">
+      <span class="stat-label">Total Submissions</span>
+      <span id="stat-total" class="stat-value">0</span>
+    </div>
+    <div class="stat-card approved">
+      <span class="stat-label">Approved</span>
+      <span id="stat-approved" class="stat-value" style="color:var(--status-approved);">0</span>
+    </div>
+    <div class="stat-card rejected">
+      <span class="stat-label">Rejected</span>
+      <span id="stat-rejected" class="stat-value" style="color:var(--status-rejected);">0</span>
+    </div>
+    <div class="stat-card manual">
+      <span class="stat-label">Manual Review</span>
+      <span id="stat-manual" class="stat-value" style="color:var(--status-manual);">0</span>
+    </div>
+    <div class="stat-card pending">
+      <span class="stat-label">Pending / Retry</span>
+      <span id="stat-pending" class="stat-value" style="color:var(--status-retry);">0</span>
+    </div>
+  </section>
+
+  <!-- Navigation Tabs -->
+  <nav class="tabs-nav">
+    <button class="tab-btn active" data-tab="console">
+      <span>⚡ Decision Console</span>
+    </button>
+    <button class="tab-btn" data-tab="history">
+      <span>📜 Request History & Audit</span>
+    </button>
+    <button class="tab-btn" data-tab="architecture">
+      <span>🧩 Workflow Architecture</span>
+    </button>
+  </nav>
+
+  <!-- TAB 1: DECISION CONSOLE -->
+  <main id="tab-console" class="tab-content active">
+    <div class="console-grid">
+      
+      <!-- Left Panel: Request Input -->
+      <div class="panel">
+        <div class="panel-header">
+          <div class="panel-title">
+            <span>📝 Request Composer</span>
+          </div>
+          <button id="btn-toggle-mode" class="btn-secondary">Switch to JSON View</button>
+        </div>
+
+        <!-- Workflow Picker -->
+        <div class="form-group">
+          <label class="form-label" for="workflow-select">Target Workflow</label>
+          <select id="workflow-select" class="form-control"></select>
+          <div id="workflow-desc" style="font-size:12px;color:var(--text-dim);margin-top:2px;"></div>
+        </div>
+
+        <!-- Presets -->
+        <div class="form-group">
+          <label class="form-label">
+            <span>Sample Test Payloads</span>
+            <span style="font-size:10px;color:var(--text-dim);">Click to autofill</span>
+          </label>
+          <div id="presets-container" class="presets-container"></div>
+        </div>
+
+        <!-- Dynamic Form Fields -->
+        <div id="dynamic-form-fields" style="display:flex;flex-direction:column;gap:12px;"></div>
+
+        <!-- Raw JSON Editor (initially hidden) -->
+        <textarea id="json-editor" class="form-control" rows="12" style="display:none;" spellcheck="false"></textarea>
+
+        <!-- Idempotency Key -->
+        <div class="form-group">
+          <label class="form-label" for="idempotency-key">
+            <span>Idempotency Key (Optional)</span>
+            <span style="font-size:10px;color:var(--text-dim);">Ensures safe duplicate execution</span>
+          </label>
+          <div style="display:flex;gap:8px;">
+            <input type="text" id="idempotency-key" class="form-control" placeholder="e.g. key_test_101 or leave blank for auto hash" />
+            <button id="btn-gen-key" type="button" class="btn-secondary" style="white-space:nowrap;">🎲 New</button>
+          </div>
+        </div>
+
+        <!-- Submit Button -->
+        <button id="btn-submit" type="button" class="btn-primary" style="padding:12px;font-size:14px;margin-top:6px;">
+          <span>⚡ Run Decision Engine</span>
+        </button>
+      </div>
+
+      <!-- Right Panel: Live Decision Inspector -->
+      <div class="panel" id="decision-inspector">
+        <div class="panel-header">
+          <div class="panel-title">
+            <span>🔍 Decision Inspector</span>
+          </div>
+        </div>
+
+        <!-- Empty State -->
+        <div id="inspector-empty" style="padding:60px 20px;text-align:center;color:var(--text-dim);">
+          <div style="font-size:40px;margin-bottom:12px;">⚖️</div>
+          <div style="font-size:16px;font-weight:600;color:var(--text-muted);margin-bottom:4px;">No Decision Rendered Yet</div>
+          <div style="font-size:13px;max-width:320px;margin:0 auto;">
+            Choose a workflow and sample payload on the left, then click <b>Run Decision Engine</b> to evaluate rules and view the audit trail.
+          </div>
+        </div>
+
+        <!-- Active Decision Content -->
+        <div id="inspector-content" style="display:none;flex-direction:column;gap:16px;"></div>
+      </div>
+
+    </div>
+  </main>
+
+  <!-- TAB 2: REQUEST HISTORY -->
+  <section id="tab-history" class="tab-content">
+    <div class="panel">
+      <div class="panel-header">
+        <div class="panel-title">
+          <span>📜 Historical Requests in Database</span>
+        </div>
+        <button id="btn-refresh-history" class="btn-secondary">🔄 Refresh</button>
+      </div>
+      <div class="data-table-container">
+        <table class="data-table">
+          <thead>
+            <tr>
+              <th>Request ID</th>
+              <th>Workflow</th>
+              <th>Status</th>
+              <th>Current Stage</th>
+              <th>Retries</th>
+              <th>Created At</th>
+            </tr>
+          </thead>
+          <tbody id="history-table-body">
+            <tr><td colspan="6" style="text-align:center;color:var(--text-dim);padding:24px;">Loading...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <!-- TAB 3: WORKFLOW ARCHITECTURE -->
+  <section id="tab-architecture" class="tab-content">
+    <div class="panel">
+      <div class="panel-header">
+        <div class="panel-title">
+          <span>🧩 Active Pipeline Stages</span>
+        </div>
+      </div>
+      <div id="pipeline-flow" class="pipeline-flow"></div>
+    </div>
+
+    <div class="panel" style="margin-top:20px;">
+      <div class="panel-header">
+        <div class="panel-title">
+          <span>📋 Configured Rules Catalog</span>
+        </div>
+      </div>
+      <div id="rules-catalog" class="data-table-container"></div>
+    </div>
+  </section>
+
+  <!-- Toasts -->
+  <div id="toast-container" class="toast-container"></div>
+
+  <script src="app.js"></script>
+</body>
+</html>
+

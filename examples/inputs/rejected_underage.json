@@ -1,0 +1,9 @@
+{
+  "applicant_id": "APP-1004",
+  "full_name": "Kiran Patel",
+  "age": 17,
+  "income": 25000,
+  "pan": "PQRST5678K",
+  "loan_amount": 5000,
+  "employment": "salaried"
+}

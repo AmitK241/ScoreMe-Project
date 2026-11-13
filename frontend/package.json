@@ -1,0 +1,17 @@
+{
+  "name": "decision-platform-frontend",
+  "version": "1.0.0",
+  "description": "Interactive Web UI for the Configurable Workflow Decision Platform",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node server.js"
+  },
+  "keywords": [
+    "decision-engine",
+    "workflow",
+    "dashboard"
+  ],
+  "author": "",
+  "license": "MIT"
+}

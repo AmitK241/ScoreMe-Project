@@ -1,0 +1,10 @@
+{
+  "applicant_id": "APP-4004",
+  "full_name": "Vikram Shah",
+  "age": 35,
+  "income": 90000,
+  "pan": "UVWXY3456Z",
+  "loan_amount": 25000,
+  "employment": "self_employed",
+  "documents_uploaded": false
+}
